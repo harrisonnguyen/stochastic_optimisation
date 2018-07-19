@@ -20,6 +20,6 @@ def evaluate(x,y, func, weights=None,find_mean=True):
 def df_dy(x,y):
     return df1_dy(x,y)
     
-def SAA_minimise(samples, func, p0=0.0):
-    res = minimize(evaluate,p0,args=(samples,func))
+def SAA_minimise(samples, func, weights=None,p0=0.0):
+    res = minimize(evaluate,p0,args=(samples,func,weights))
     return res.x
