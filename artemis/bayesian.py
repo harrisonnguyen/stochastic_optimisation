@@ -29,7 +29,7 @@ def main(args):
 
 
     try:
-        df = pd.read_csv(file_name)
+        df = pd.read_csv(file_name,index_col=0)
     except FileNotFoundError:
         df = pd.DataFrame(columns=['method','N','x_star'])
 
@@ -57,6 +57,7 @@ def main(args):
 
             results ={'method':'Bayes','N':N[j],'x_star':res.x[0]}
             df = df.append(results,ignore_index=True)
+        df.to_csv(file_name)
 
     samples = Y1.rvs(7000)
     # compute saa
