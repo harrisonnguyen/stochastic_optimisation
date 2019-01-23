@@ -8,4 +8,5 @@ source stochastic/bin/activate
 
 
 cd $PBS_O_WORKDIR
-python3 bayesian.py 800
+#python3 bayesian.py 800
+python3 portfolio_opti_exp.py 1000
