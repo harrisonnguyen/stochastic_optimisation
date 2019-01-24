@@ -79,7 +79,7 @@ def main(args):
                                         sample_cov,
                                         gamma[j])
                 results = {'w_star': weights,'method':'SAA','gamma':gamma[j],'N':N[i]}
-
+                df = df.append(results,ignore_index=True)
                 mean_array,cov_array = compute_posterior(
                                         n,
                                         sample_mean,
@@ -94,7 +94,12 @@ def main(args):
                 results = {'w_star': weights,'method':'Bayesian','gamma':gamma[j],'N':N[i]}
                 df = df.append(results,ignore_index=True)
         df.to_csv(file_name)
-
+    for j in range(len(gamma)):
+        weights = mle_mv_gaussian(mu,
+                                    covar,
+                                    gamma[j])
+        results = {'w_star': weights,'method':'True','gamma':gamma[j],'N':200}
+        df = df.append(results,ignore_index=True)
 
 
 if __name__ == '__main__':
