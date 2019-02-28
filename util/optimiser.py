@@ -4,17 +4,15 @@ from scipy.optimize import minimize
 class SAA(object):
     def __init__(self,
                  objective_function,
-                 initial_conditions,
                  constraints=(),
                  bounds=None,
                  helper_func=None):
         self.objective_function = objective_function
-        self.initial_conditions = initial_conditions
         self.constraints = constraints
         self.bounds = bounds
         self.helper_func = helper_func
 
-    def solve(self,samples,additional_args=(),*args,**kwargs):
+    def solve(self,samples,initial_conditions,additional_args=(),*args,**kwargs):
         """
         if 'cov_est' not in kwargs:
             cov_est = np.cov(samples.T)
@@ -31,20 +29,23 @@ class SAA(object):
         """
         # do any preprocessing on the samples
         if self.helper_func:
-            new_args = self.helper_func(samples)
+            new_args = self.helper_func(samples,*args,**kwargs)
         else:
             new_args = (samples,)
         additional_args = new_args + additional_args
         res = minimize(self.objective_function,
-                       self.initial_conditions,
+                       initial_conditions,
                        args=additional_args,
                       constraints=self.constraints,
                       bounds=self.bounds)
         return res.x
 
+    def __str__(self):
+        return 'SAA'
+
 class BaggingSolver(SAA):
     def __init__(self,iterations=500,*args,**kwargs):
-        super().__init__(*args,**kwargs)
+        super(BaggingSolver,self).__init__(*args,**kwargs)
         self.iterations=iterations
 
     def solve(self,samples,*args,**kwargs):
@@ -55,17 +56,22 @@ class BaggingSolver(SAA):
                                       size=sample_size,
                                       replace=True)
             bootstrapped_samples = samples[indexs]
-            result_array.append(super().solve(bootstrapped_samples,*args,**kwargs))
+            result_array.append(super(BaggingSolver,self).solve(bootstrapped_samples,*args,**kwargs))
         return np.mean(result_array,axis=0)
+
+    def __str__(self):
+        return 'Bagging'
 
 class MLESolver(SAA):
     def __init__(self,distribution,n_to_sample=5000,*args,**kwargs):
-        super().__init__(*args,**kwargs)
+        super(MLESolver,self).__init__(*args,**kwargs)
         self.n_to_sample = n_to_sample
         self.distribution = distribution
 
     def solve(self,samples,*args,**kwargs):
         parameters = self.distribution.fit(samples)
-        print(parameters)
         new_samples = self.distribution(*parameters).rvs(self.n_to_sample)
-        return super().solve(new_samples,*args,**kwargs)
+        return super(MLESolver,self).solve(new_samples,*args,**kwargs)
+
+    def __str__(self):
+        return 'MLE'
