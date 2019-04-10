@@ -1,6 +1,11 @@
 import numpy as np
 from scipy.optimize import minimize
+import pymc3 as pm
+import pymc3.sampling as sampling
+import theano
+from sklearn.utils import resample
 
+from scipy.stats import gaussian_kde
 class SAA(object):
     def __init__(self,
                  objective_function,
@@ -13,20 +18,6 @@ class SAA(object):
         self.helper_func = helper_func
 
     def solve(self,samples,initial_conditions,additional_args=(),*args,**kwargs):
-        """
-        if 'cov_est' not in kwargs:
-            cov_est = np.cov(samples.T)
-        else:
-            cov_est = kwargs['cov_est']
-        if 'mean_est' not in kwargs:
-            mean_est = np.mean(samples,axis=0)
-        else:
-            mean_est = kwargs['mean_est']
-            (mean_est,
-                 cov_est,
-                 kwargs['gamma'],
-                 use_average)
-        """
         # do any preprocessing on the samples
         if self.helper_func:
             new_args = self.helper_func(samples,*args,**kwargs)
@@ -44,7 +35,7 @@ class SAA(object):
         return 'SAA'
 
 class BaggingSolver(SAA):
-    def __init__(self,iterations=500,*args,**kwargs):
+    def __init__(self,iterations=30,*args,**kwargs):
         super(BaggingSolver,self).__init__(*args,**kwargs)
         self.iterations=iterations
 
@@ -52,10 +43,11 @@ class BaggingSolver(SAA):
         result_array = []
         sample_size = samples.shape[0]
         for i in range(self.iterations):
-            indexs = np.random.choice(range(sample_size),
-                                      size=sample_size,
-                                      replace=True)
-            bootstrapped_samples = samples[indexs]
+            #indexs = np.random.choice(range(sample_size),
+            #                          size=sample_size,
+            #                          replace=True)
+            #bootstrapped_samples = samples[indexs]
+            bootstrapped_samples = resample(samples,n_samples=sample_size)
             result_array.append(super(BaggingSolver,self).solve(bootstrapped_samples,*args,**kwargs))
         return np.mean(result_array,axis=0)
 
@@ -75,3 +67,43 @@ class MLESolver(SAA):
 
     def __str__(self):
         return 'MLE'
+
+class BetaBayesianSolver(SAA):
+    def __init__(self,n_to_sample=1000,*args,**kwargs):
+        super(BetaBayesianSolver,self).__init__(*args,**kwargs)
+        self.n_to_sample = n_to_sample
+        self.model = pm.Model()
+        self.shared_data = theano.shared(np.ones(1)*0.5, borrow=True)
+        with self.model:
+            self.alpha_dist = pm.Uniform('alpha',lower=1.0, upper=7.0)
+            self.beta_dist = pm.Uniform('beta',lower=1.0, upper=7.0)
+            observed = pm.Beta('obs',alpha=self.alpha_dist,beta=self.beta_dist,
+                                     observed=self.shared_data)
+            self.step = pm.Metropolis()
+
+    def solve(self,samples,loc=-1,scale=2,*args,**kwargs):
+        scaled_samples = (samples - loc)/(scale)
+        with self.model:
+
+            self.shared_data.set_value(scaled_samples)
+            # Sample from the posterior using the sampling method
+            trace = pm.sample(self.n_to_sample, step=self.step, njobs=4,progressbar=False,cores=4)
+        obs = sampling.sample_ppc(trace,samples=50,model=self.model,size=500,progressbar=False)
+        new_samples = np.reshape(obs['obs'],-1,1)*scale+loc
+        return super(BetaBayesianSolver,self).solve(new_samples,*args,**kwargs)
+
+    def __str__(self):
+        return 'Bayesian'
+
+class KDESolver(SAA):
+    def __init__(self,n_to_sample=1000,*args,**kwargs):
+        super(KDESolver,self).__init__(*args,**kwargs)
+        self.n_to_sample = n_to_sample
+
+    def solve(self,samples,*args,**kwargs):
+        kde = gaussian_kde(samples)
+        new_samples = kde.resample(self.n_to_sample)
+        return super(KDESolver,self).solve(np.squeeze(new_samples),*args,**kwargs)
+
+    def __str__(self):
+        return 'KDE'
