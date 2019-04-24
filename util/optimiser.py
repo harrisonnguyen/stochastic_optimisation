@@ -5,6 +5,7 @@ import pymc3.sampling as sampling
 import theano
 from sklearn.utils import resample
 from scipy.misc import logsumexp
+from sklearn.mixture import GaussianMixture,BayesianGaussianMixture
 
 from scipy.stats import gaussian_kde
 class SAA(object):
@@ -85,6 +86,34 @@ class MLESolver(SAA):
     def __str__(self):
         return 'MLE'
 
+class GMMSolver(SAA):
+    def __init__(self,is_bayesian,n_components,covariance_type="spherical",
+                n_to_sample=5000,*args,**kwargs):
+        super(GMMSolver,self).__init__(*args,**kwargs)
+        self.n_to_sample = n_to_sample
+        self.is_bayesian=is_bayesian
+        if is_bayesian:
+            self.distribution = BayesianGaussianMixture(n_components=n_components,
+                                                       covariance_type= covariance_type)
+        else:
+            self.distribution = GaussianMixture(n_components=n_components,
+                                                       covariance_type= covariance_type)
+
+
+    def solve(self,samples,*args,**kwargs):
+
+        self.distribution.fit(samples.reshape(-1, 1))
+
+        new_samples = self.distribution.sample(self.n_to_sample)[0].reshape(-1)
+
+        return super(GMMSolver,self).solve(new_samples,*args,**kwargs)
+
+    def __str__(self):
+        if self.is_bayesian:
+            return "Bayesian"
+        else:
+            return 'MLE'
+
 class BetaBayesianSolver(SAA):
     def __init__(self,n_to_sample=1000,*args,**kwargs):
         super(BetaBayesianSolver,self).__init__(*args,**kwargs)
@@ -118,8 +147,8 @@ class KDESolver(SAA):
         self.n_to_sample = n_to_sample
 
     def solve(self,samples,*args,**kwargs):
-        kde = gaussian_kde(samples)
-        new_samples = kde.resample(self.n_to_sample)
+        self.kde = gaussian_kde(samples)
+        new_samples = self.kde.resample(self.n_to_sample)
         return super(KDESolver,self).solve(np.squeeze(new_samples),*args,**kwargs)
 
     def __str__(self):
