@@ -66,11 +66,11 @@ def main(args):
     df = df.append(results,ignore_index=True)
 
     samples = Y1.rvs(10000)
-    func = lambda x: np.mean(f1(x,samples))
+    func = lambda x: nps.mean(f1(x,samples))
     df.loc[:,'expected_cost'] = df.loc[:,'x_star'].apply(func)
 
     df.to_csv(file_name)
-    
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Perform wasserstein experiments')
     parser.add_argument('--mcmc_samples', dest='mcmc_samples',default=1000, type=int, help='number of samples for the mcmc trace')

@@ -6,7 +6,7 @@ import theano
 from sklearn.utils import resample
 from scipy.misc import logsumexp
 from sklearn.mixture import GaussianMixture,BayesianGaussianMixture
-
+import scipy.stats as st
 from scipy.stats import gaussian_kde
 class SAA(object):
     def __init__(self,
@@ -141,15 +141,101 @@ class BetaBayesianSolver(SAA):
     def __str__(self):
         return 'Bayesian'
 
+class MvGaussianSolver(SAA):
+    def __init__(self,n_to_sample=1000,*args,**kwargs):
+        super(MvGaussianSolver,self).__init__(*args,**kwargs)
+        self.n_to_sample = n_to_sample
+        # the priors
+        self.mu0 = np.array([0]*5)
+        self.m = 1
+        self.Psi = 5*np.eye(5)
+        self.nu0 = 5
+
+
+    def solve(self,samples,initial_conditions,
+                additional_args=None,*args,**kwargs):
+        n = samples.shape[0]
+        sample_mean = np.mean(samples,axis=0)
+        sample_cov = np.cov(samples.T)
+
+        posterior_sigma_scale = self.Psi+n*sample_cov+self.m*n/(n+self.m)*np.dot(sample_mean-self.mu0,(sample_mean-self.mu0).T)
+        posterior_sigma_nu = n+self.nu0
+        post_invwish = st.invwishart(scale=posterior_sigma_scale,
+                                    df=posterior_sigma_nu)
+        cov_array = []
+        mean_array = []
+        for k in range(self.n_to_sample):
+
+            cov_array.append(post_invwish.rvs())
+            posterior_mean_mu = (n*sample_mean+self.m*self.mu0)/(self.m+n)
+            #mean_wishart = posterior_sigma_scale/(posterior_sigma_nu-sample_mean.shape[0]-1)
+            posterior_mean_sigma = 1/(self.m+n)*cov_array[k]
+            mean_array.append(st.multivariate_normal.rvs(posterior_mean_mu,
+                                                        posterior_mean_sigma))
+        args = (mean_array,cov_array)
+        if additional_args:
+            args = args + additional_args
+        res = minimize(self.objective_function,
+                        initial_conditions,
+                        constraints=self.constraints,
+                        bounds = self.bounds,
+                        args=args)
+
+        return res.x
+
+    def __str__(self):
+        return 'Bayesian'
+
+class MvStudentTBayesianSolver(SAA):
+    def __init__(self,n_to_sample=2000,*args,**kwargs):
+        super(MvStudentTBayesianSolver,self).__init__(*args,**kwargs)
+        self.n_to_sample = n_to_sample
+        self.model = pm.Model()
+        self.shared_data = theano.shared(np.zeros((5,5))*0.5, borrow=True)
+        with self.model:
+            sd_dist = pm.HalfCauchy.dist(beta=2.5)
+            packed_chol = pm.LKJCholeskyCov('chol_cov', eta=2, n=5, sd_dist=sd_dist)
+            chol = pm.expand_packed_triangular(5, packed_chol, lower=True)
+            cov = pm.Deterministic('cov', theano.dot(chol,chol.T))
+            self.mu_dist = pm.MvNormal("mu",mu=np.zeros(5),
+                            chol=chol, shape=5)
+            observed = pm.MvStudentT('obs',nu=7.0,
+                                    mu=self.mu_dist,
+                                    chol=chol,
+                                     observed=self.shared_data)
+            self.step = pm.Metropolis()
+
+    def solve(self,samples,initial_conditions,additional_args,*args,**kwargs):
+        with self.model:
+
+            self.shared_data.set_value(samples)
+            # Sample from the posterior using the sampling method
+            trace = pm.sample(self.n_to_sample, step=self.step, njobs=4,progressbar=False,cores=4,verbose=-1)
+        args = (trace["mu"][1000:],trace["cov"][1000:])
+        if additional_args:
+            args = args + additional_args
+        res = minimize(self.objective_function,
+                        initial_conditions,
+                        constraints=self.constraints,
+                        bounds = self.bounds,
+                        args=args)
+
+        return res.x
+
+    def __str__(self):
+        return 'Bayesian'
+
 class KDESolver(SAA):
     def __init__(self,n_to_sample=1000,*args,**kwargs):
         super(KDESolver,self).__init__(*args,**kwargs)
         self.n_to_sample = n_to_sample
 
     def solve(self,samples,*args,**kwargs):
+        if len(samples.shape)==2:
+            samples = samples.T
         self.kde = gaussian_kde(samples)
         new_samples = self.kde.resample(self.n_to_sample)
-        return super(KDESolver,self).solve(np.squeeze(new_samples),*args,**kwargs)
+        return super(KDESolver,self).solve(np.squeeze(new_samples.T),*args,**kwargs)
 
     def __str__(self):
         return 'KDE'
