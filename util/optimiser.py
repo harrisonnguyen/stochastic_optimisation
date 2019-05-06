@@ -193,13 +193,14 @@ class MvStudentTBayesianSolver(SAA):
         self.model = pm.Model()
         self.shared_data = theano.shared(np.zeros((5,5))*0.5, borrow=True)
         with self.model:
-            sd_dist = pm.HalfCauchy.dist(beta=2.5)
+            sd_dist = pm.Gamma.dist(alpha=3.0,beta=1.0)
+            #sd_dist = pm.HalfCauchy.dist(beta=2.5)
             packed_chol = pm.LKJCholeskyCov('chol_cov', eta=2, n=5, sd_dist=sd_dist)
             chol = pm.expand_packed_triangular(5, packed_chol, lower=True)
             cov = pm.Deterministic('cov', theano.dot(chol,chol.T))
             self.mu_dist = pm.MvNormal("mu",mu=np.zeros(5),
                             chol=chol, shape=5)
-            observed = pm.MvStudentT('obs',nu=7.0,
+            observed = pm.MvStudentT('obs',nu=3.5,
                                     mu=self.mu_dist,
                                     chol=chol,
                                      observed=self.shared_data)
